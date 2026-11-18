@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Timer">
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Speaker Timer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #111; color: #fff; overflow: hidden; }
+  button { font: inherit; cursor: pointer; border: none; }
+
+  /* ---------- SETUP SCREEN ---------- */
+  #setup { height: 100%; overflow-y: auto; padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom)); max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 28px; margin-bottom: 4px; }
+  .sub { color: #999; margin-bottom: 24px; font-size: 15px; }
+  .preset { display: flex; align-items: center; gap: 12px; background: #1d1d1d; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+  .preset .info { flex: 1; min-width: 0; }
+  .preset .name { font-size: 20px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .preset .meta { color: #999; font-size: 14px; margin-top: 2px; }
+  .chip { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 8px; vertical-align: middle; }
+  .btn { padding: 12px 18px; border-radius: 10px; font-size: 16px; font-weight: 600; }
+  .btn-go { background: #2e7d32; color: #fff; font-size: 18px; padding: 14px 24px; }
+  .btn-ghost { background: #2a2a2a; color: #ddd; }
+  .btn-add { width: 100%; background: #2a2a2a; color: #fff; padding: 16px; font-size: 17px; margin-top: 8px; border: 2px dashed #444; }
+
+  #editor { display: none; background: #1d1d1d; border-radius: 14px; padding: 18px; margin-top: 12px; }
+  #editor label { display: block; color: #aaa; font-size: 14px; margin: 12px 0 6px; }
+  #editor input { width: 100%; padding: 12px; font-size: 18px; border-radius: 8px; border: 1px solid #444; background: #111; color: #fff; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .editor-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .editor-actions .btn { flex: 1; }
+  .btn-save { background: #1565c0; color: #fff; }
+  .btn-del { background: #6d1b1b; color: #fff; }
+  .hint { color: #777; font-size: 13px; margin-top: 20px; line-height: 1.5; }
+
+  /* ---------- TIMER SCREEN ---------- */
+  #timer { display: none; position: fixed; inset: 0; flex-direction: column; align-items: center; justify-content: center; transition: background-color .4s; background: #111; user-select: none; padding-bottom: 110px; }
+  #timer.yellow { background: #f9c80e; color: #111; }
+  #timer.red, #timer.over { background: #d50000; color: #fff; }
+
+  #label { display: none; } /* preset names are for the organiser only */
+  #clock { font-size: min(30vw, 50vh); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -0.02em; }
+  #clock.done { font-size: min(17vw, 38vh); letter-spacing: 0; }
+  #status { font-size: clamp(22px, 5vw, 56px); font-weight: 700; margin-top: 2vh; min-height: 1.2em; text-transform: uppercase; letter-spacing: .05em; }
+  #badge { position: absolute; top: calc(20px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); color: #fff; padding: 8px 18px; border-radius: 30px; font-size: 18px; font-weight: 700; display: none; }
+
+  /* control bar: always visible, fixed at the bottom */
+  #controls { position: absolute; bottom: 0; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); background: rgba(0,0,0,.35); }
+  #controls button { display: flex; align-items: center; justify-content: center; gap: 10px; color: #fff; border-radius: 14px; font-size: 20px; font-weight: 700; height: 70px; min-width: 140px; padding: 0 22px; }
+  #controls button svg { width: 26px; height: 26px; fill: currentColor; }
+  #playBtn  { background: #2e7d32; }
+  #pauseBtn { background: #e67e00; }
+  #resetBtn { background: #455a64; }
+  #backBtn  { background: #263238; }
+  #controls button:disabled { opacity: .3; cursor: default; }
+  #controls .gap { width: 16px; }
+  #controls .small { min-width: 0; height: 56px; font-size: 16px; padding: 0 14px; background: rgba(255,255,255,.15); }
+</style>
+</head>
+<body>
+
+<!-- SETUP -->
+<div id="setup">
+  <h1>Speaker Timer</h1>
+  <p class="sub">Pick a talk length, then press Play when the speaker begins.</p>
+  <div id="presetList"></div>
+  <button class="btn btn-add" id="addBtn">+ New preset</button>
+
+  <div id="editor">
+    <label>Preset name</label>
+    <input id="fName" type="text" placeholder="e.g. Keynote">
+    <div class="row">
+      <div><label>Talk length (min)</label><input id="fLen" type="number" min="1" step="1" inputmode="numeric"></div>
+      <div><label>Yellow at (min left)</label><input id="fYel" type="number" min="0" step="0.5" inputmode="decimal"></div>
+      <div><label>Red at (min left)</label><input id="fRed" type="number" min="0" step="0.5" inputmode="decimal"></div>
+    </div>
+    <div class="editor-actions">
+      <button class="btn btn-ghost" id="cancelBtn">Cancel</button>
+      <button class="btn btn-del" id="delBtn">Delete</button>
+      <button class="btn btn-save" id="saveBtn">Save</button>
+    </div>
+  </div>
+
+  <p class="hint">
+    At 0:00 the screen stays red and shows TIME'S UP, with the overtime in small text underneath.<br>
+    Presets are saved on this device.
+  </p>
+</div>
+
+<!-- TIMER -->
+<div id="timer">
+  <div id="badge"></div>
+  <div id="label"></div>
+  <div id="clock">00:00</div>
+  <div id="status"></div>
+  <div id="controls">
+    <button id="backBtn"><svg viewBox="0 0 24 24"><path d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg>Back</button>
+    <button id="resetBtn"><svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>Reset</button>
+    <button id="pauseBtn"><svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>Pause</button>
+    <button id="playBtn"><svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>Play</button>
+    <span class="gap"></span>
+    <button id="minusBtn" class="small">−1 min</button>
+    <button id="plusBtn" class="small">+1 min</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'speakerTimerPresets.v1';
+  var DEFAULTS = [
+    { name: 'Lightning talk', len: 5,  yel: 2, red: 1 },
+    { name: 'Short talk',     len: 10, yel: 5, red: 1 },
+    { name: 'Standard talk',  len: 20, yel: 5, red: 1 },
+    { name: 'Panel',          len: 45, yel: 5, red: 1 },
+    { name: 'Keynote',        len: 60, yel: 5, red: 1 }
+  ];
+
+  var presets = load();
+  var editingIndex = -1;
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) { var p = JSON.parse(raw); if (Array.isArray(p) && p.length) return p; }
+    } catch (e) {}
+    return DEFAULTS.slice();
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(presets)); } catch (e) {} }
+
+  var $ = function (id) { return document.getElementById(id); };
+  function fmtMin(m) { return (m % 1 === 0 ? m : m.toFixed(1)) + ' min'; }
+  function mmss(secs) { var m = Math.floor(secs / 60), s = secs % 60; return m + ':' + (s < 10 ? '0' : '') + s; }
+
+  /* ---------- PRESETS ---------- */
+  function render() {
+    var list = $('presetList');
+    list.innerHTML = '';
+    presets.forEach(function (p, i) {
+      var el = document.createElement('div');
+      el.className = 'preset';
+      el.innerHTML =
+        '<div class="info"><div class="name"></div>' +
+        '<div class="meta">' + fmtMin(p.len) +
+        '<span class="chip" style="background:#f9c80e"></span>' + fmtMin(p.yel) +
+        '<span class="chip" style="background:#d50000"></span>' + fmtMin(p.red) + '</div></div>' +
+        '<button class="btn btn-ghost" data-edit="' + i + '">Edit</button>' +
+        '<button class="btn btn-go" data-go="' + i + '">Open</button>';
+      el.querySelector('.name').textContent = p.name;
+      list.appendChild(el);
+    });
+  }
+
+  $('presetList').addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.dataset.go !== undefined) openTimer(presets[+t.dataset.go]);
+    if (t.dataset.edit !== undefined) openEditor(+t.dataset.edit);
+  });
+
+  function openEditor(i) {
+    editingIndex = i;
+    var p = i >= 0 ? presets[i] : { name: '', len: 15, yel: 5, red: 1 };
+    $('fName').value = p.name; $('fLen').value = p.len; $('fYel').value = p.yel; $('fRed').value = p.red;
+    $('delBtn').style.display = i >= 0 ? '' : 'none';
+    $('editor').style.display = 'block';
+    $('addBtn').style.display = 'none';
+    $('editor').scrollIntoView({ behavior: 'smooth' });
+  }
+  function closeEditor() { $('editor').style.display = 'none'; $('addBtn').style.display = ''; }
+
+  $('addBtn').onclick = function () { openEditor(-1); };
+  $('cancelBtn').onclick = closeEditor;
+  $('delBtn').onclick = function () {
+    if (editingIndex >= 0) { presets.splice(editingIndex, 1); save(); render(); }
+    closeEditor();
+  };
+  $('saveBtn').onclick = function () {
+    var p = {
+      name: $('fName').value.trim() || 'Untitled',
+      len: parseFloat($('fLen').value) || 10,
+      yel: parseFloat($('fYel').value) || 0,
+      red: parseFloat($('fRed').value) || 0
+    };
+    if (p.red > p.yel) { var t = p.red; p.red = p.yel; p.yel = t; }
+    if (editingIndex >= 0) presets[editingIndex] = p; else presets.push(p);
+    save(); render(); closeEditor();
+  };
+
+  /* ---------- TIMER ---------- */
+  var cur = null, endAt = 0, remainingMs = 0, running = false, tick = null, wakeLock = null;
+
+  // Opening a preset shows the full time, ready to go. Nothing runs until Play.
+  function openTimer(p) {
+    cur = p;
+    remainingMs = p.len * 60000;
+    running = false;
+    $('label').textContent = p.name;
+    $('setup').style.display = 'none';
+    $('timer').style.display = 'flex';
+    requestWake();
+    goFullscreen();
+    setBadge('READY');
+    update(); syncButtons();
+  }
+
+  function play() {
+    if (running) return;
+    endAt = Date.now() + remainingMs;
+    running = true;
+    setBadge('');
+    clearInterval(tick);
+    tick = setInterval(update, 200);
+    update(); syncButtons();
+  }
+  function pause() {
+    if (!running) return;
+    remainingMs = endAt - Date.now();
+    running = false;
+    clearInterval(tick);
+    setBadge('PAUSED');
+    update(); syncButtons();
+  }
+  function reset() {
+    clearInterval(tick);
+    running = false;
+    remainingMs = cur.len * 60000;
+    setBadge('READY');
+    update(); syncButtons();
+  }
+  function back() {
+    clearInterval(tick); running = false;
+    $('timer').style.display = 'none';
+    $('setup').style.display = '';
+    releaseWake();
+    try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+  }
+  function adjust(deltaMin) {
+    if (running) endAt += deltaMin * 60000; else remainingMs += deltaMin * 60000;
+    update();
+  }
+
+  function setBadge(t) { $('badge').textContent = t; $('badge').style.display = t ? 'block' : 'none'; }
+  function syncButtons() { $('playBtn').disabled = running; $('pauseBtn').disabled = !running; }
+
+  function update() {
+    var ms = running ? endAt - Date.now() : remainingMs;
+    var over = ms <= 0;
+    var secs = over ? Math.floor(-ms / 1000) : Math.ceil(ms / 1000);
+
+    if (over) { $('clock').textContent = "TIME'S UP"; $('clock').classList.add('done'); }
+    else      { $('clock').textContent = mmss(secs); $('clock').classList.remove('done'); }
+
+    var cls, status;
+    if (over)                       { cls = 'over';   status = secs > 0 ? '+' + mmss(secs) + ' over' : ''; }
+    else if (ms <= cur.red * 60000) { cls = 'red';    status = ''; }
+    else if (ms <= cur.yel * 60000) { cls = 'yellow'; status = ''; }
+    else                            { cls = '';       status = ''; }
+    $('timer').className = cls;
+    $('status').textContent = status;
+  }
+
+  // Buttons only. Touching the screen itself does nothing.
+  $('playBtn').onclick  = play;
+  $('pauseBtn').onclick = pause;
+  $('resetBtn').onclick = reset;
+  $('backBtn').onclick  = back;
+  $('plusBtn').onclick  = function () { adjust(1); };
+  $('minusBtn').onclick = function () { adjust(-1); };
+
+  // Keyboard (laptop use): Space = play/pause, arrows = ±1 min
+  document.addEventListener('keydown', function (e) {
+    if ($('timer').style.display !== 'flex') return;
+    if (e.code === 'Space') { e.preventDefault(); running ? pause() : play(); }
+    if (e.code === 'ArrowUp') adjust(1);
+    if (e.code === 'ArrowDown') adjust(-1);
+  });
+
+  function goFullscreen() {
+    var el = document.documentElement;
+    try {
+      if (el.requestFullscreen) el.requestFullscreen().catch(function () {});
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } catch (e) {}
+  }
+  function requestWake() {
+    try { if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; }).catch(function () {}); } catch (e) {}
+  }
+  function releaseWake() { try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null; }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && $('timer').style.display === 'flex') requestWake();
+  });
+
+  render();
+
+  // Save the app for offline use (works when served over https)
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+})();
+</script>
+</body>
+</html>
